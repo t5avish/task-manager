@@ -1,0 +1,52 @@
+# -------- Visual Studio --------
+.vs/
+*.vcxproj.user
+*.vcxproj.filters
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build folders
+x64/
+x86/
+ARM*/
+Debug/
+Release/
+bin/
+obj/
+out/
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Auto-generated Visual Studio files
+GeneratedFiles/
+ipch/
+*.opensdf
+*.sdf
+*.cachefile
+
+# NuGet
+*.nupkg
+packages/
+*.snupkg
+
+# vcpkg build cache
+vcpkg_installed/
+vcpkg/blds/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Windows junk
+Thumbs.db
+Desktop.ini
+
+# CMake presets
+CMakeUserPresets.json
