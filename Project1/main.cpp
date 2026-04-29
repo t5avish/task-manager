@@ -8,16 +8,25 @@
 #include "listview.hpp"
 #pragma comment(lib, "Comctl32.lib")
 
+#define ID_END_TASK 1001
+#define ID_REFRESH_TIMER 2001
+#define ID_MENU_REFRESH_AUTO_2   3001
+#define ID_MENU_REFRESH_AUTO_5   3002
+#define ID_MENU_REFRESH_AUTO_10  3003
+#define ID_MENU_REFRESH_MANUAL   3004
+
 using namespace common;
 static ListView process_list;
 static Button end_task_button;
+static DWORD selected_pid = 0;
+static UINT refresh_rate = 2000;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 static RECT calculate_listview_rect(int width, int height)
 {
     constexpr int MARGIN = 10;
-    return RECT{
+    return RECT {
         MARGIN,
         MARGIN,
         width - MARGIN,
@@ -58,16 +67,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         NULL        // Additional application data
     );
 
-    if (hwnd == NULL)
-    {
+    if (hwnd == NULL) {
         return 0;
     }
 
     ShowWindow(hwnd, nCmdShow);
 
     MSG msg = { };
-    while (GetMessage(&msg, NULL, 0, 0) > 0)
-    {
+    while (GetMessage(&msg, NULL, 0, 0) > 0) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
@@ -79,8 +86,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     switch (uMsg)
     {
     case WM_DESTROY:
+    {
+        KillTimer(hwnd, ID_REFRESH_TIMER);
         PostQuitMessage(0);
         return 0;
+    }
 
     case WM_CREATE:
     {
@@ -88,6 +98,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         RECT rc;
         GetClientRect(hwnd, &rc);
+
+        HMENU menu_bar = CreateMenu();
+        HMENU options_menu = CreateMenu();
+        HMENU refresh_menu = CreateMenu();
+        HMENU auto_menu = CreateMenu();
+
+        AppendMenu(auto_menu, MF_STRING, ID_MENU_REFRESH_AUTO_2, L"2 seconds");
+        AppendMenu(auto_menu, MF_STRING, ID_MENU_REFRESH_AUTO_5, L"5 seconds");
+        AppendMenu(auto_menu, MF_STRING, ID_MENU_REFRESH_AUTO_10, L"10 seconds");
+
+        AppendMenu(refresh_menu, MF_POPUP, (UINT_PTR)auto_menu, L"Auto");
+        AppendMenu(refresh_menu, MF_STRING, ID_MENU_REFRESH_MANUAL, L"Manual");
+        AppendMenu(options_menu, MF_POPUP, (UINT_PTR)refresh_menu, L"Refresh");
+
+        AppendMenu(menu_bar, MF_POPUP, (UINT_PTR)options_menu, L"Options");
+
+        SetMenu(hwnd, menu_bar);
 
         process_list.create(hwnd, instance, calculate_listview_rect(rc.right, rc.bottom));
 
@@ -105,8 +132,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         insert_processes_into_grid(process_list.hwnd);
 
-        end_task_button.create(hwnd, instance, L"End task", 0, 0);
+        end_task_button.create(hwnd, instance, L"End task", 0, 0, ID_END_TASK);
         end_task_button.position_bottom_right(rc.right, rc.bottom);
+
+        EnableWindow(end_task_button.hwnd, FALSE);
+
+        SetTimer(hwnd, ID_REFRESH_TIMER, 2000, NULL);
         return 0;
     }
 
@@ -117,6 +148,132 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         end_task_button.position_bottom_right(window_width, window_height);
         process_list.resize(calculate_listview_rect(window_width, window_height));
+        return 0;
+    }
+
+    case WM_NOTIFY:
+    {
+        auto* hdr = reinterpret_cast<LPNMHDR>(lParam);
+
+        if (hdr->hwndFrom != process_list.hwnd || hdr->code != LVN_ITEMCHANGED) {
+            break;
+        }
+
+        auto* lv = reinterpret_cast<LPNMLISTVIEW>(lParam);
+
+        if (!(lv->uChanged & LVIF_STATE)) {
+            break;
+        }
+
+        const bool is_selected = (lv->uNewState & LVIS_SELECTED) && !(lv->uOldState & LVIS_SELECTED);
+
+        const bool is_deselected = !(lv->uNewState & LVIS_SELECTED) && (lv->uOldState & LVIS_SELECTED);
+
+        if (is_selected) {
+            LVITEM item{};
+            item.mask = LVIF_PARAM;
+            item.iItem = lv->iItem;
+
+            ListView_GetItem(process_list.hwnd, &item);
+
+            selected_pid = static_cast<DWORD>(item.lParam);
+            EnableWindow(end_task_button.hwnd, TRUE);
+
+        } else if (is_deselected) {
+            selected_pid = 0;
+            EnableWindow(end_task_button.hwnd, FALSE);
+        }
+
+        return 0;
+    }
+
+    case WM_COMMAND:
+    {
+        switch (LOWORD(wParam))
+        {
+        // END TASK BUTTON
+        case ID_END_TASK:
+        {
+            if (HIWORD(wParam) == BN_CLICKED && selected_pid)
+            {
+                if (!common::soft_kill_process_by_pid(selected_pid))
+                {
+                    common::hard_kill_process_by_pid(selected_pid);
+                }
+
+                ListView_DeleteAllItems(process_list.hwnd);
+                common::insert_processes_into_grid(process_list.hwnd);
+
+                EnableWindow(end_task_button.hwnd, FALSE);
+                selected_pid = 0;
+            }
+            return 0;
+        }
+
+        // MENU
+        case ID_MENU_REFRESH_AUTO_2:
+        {
+            refresh_rate = 2000;
+            SetTimer(hwnd, ID_REFRESH_TIMER, refresh_rate, NULL);
+            return 0;
+        }
+
+        case ID_MENU_REFRESH_AUTO_5:
+        {
+            refresh_rate = 5000;
+            SetTimer(hwnd, ID_REFRESH_TIMER, refresh_rate, NULL);
+            return 0;
+        }
+
+        case ID_MENU_REFRESH_AUTO_10:
+        {
+            refresh_rate = 10000;
+            SetTimer(hwnd, ID_REFRESH_TIMER, refresh_rate, NULL);
+            return 0;
+        }
+
+        // MANUAL REFRESH
+        case ID_MENU_REFRESH_MANUAL:
+        {
+            KillTimer(hwnd, ID_REFRESH_TIMER);
+            return 0;
+        }
+        }
+
+        break;
+    }
+
+    case WM_TIMER:
+    {
+        if (wParam == ID_REFRESH_TIMER)
+        {
+            DWORD previous_pid = selected_pid;
+
+            ListView_DeleteAllItems(process_list.hwnd);
+            common::insert_processes_into_grid(process_list.hwnd);
+
+            if (previous_pid != 0)
+            {
+                int count = ListView_GetItemCount(process_list.hwnd);
+
+                for (int i = 0; i < count; i++)
+                {
+                    LVITEM item{};
+                    item.mask = LVIF_PARAM;
+                    item.iItem = i;
+
+                    if (ListView_GetItem(process_list.hwnd, &item))
+                    {
+                        if ((DWORD)item.lParam == previous_pid)
+                        {
+                            ListView_SetItemState(process_list.hwnd, i,
+                                LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         return 0;
     }
     }

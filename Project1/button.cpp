@@ -1,13 +1,13 @@
 #include "button.hpp"
 
-void Button::create(HWND parent, HINSTANCE instance, const std::wstring &label, int x, int y) {
+void Button::create(HWND parent, HINSTANCE instance, const std::wstring &label, int x, int y, int id) {
     hwnd = CreateWindow(
         L"BUTTON",
         label.c_str(),
         WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
         x, y, width, height,
         parent,
-        NULL,
+        (HMENU)id,
         instance,
         NULL
     );

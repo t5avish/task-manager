@@ -10,6 +10,6 @@ public:
     int height = 30;
     int margin_from_corner = 10;
 
-    void create(HWND parent, HINSTANCE instance, const std::wstring &label, int x, int y);
+    void create(HWND parent, HINSTANCE instance, const std::wstring &label, int x, int y, int id);
     void position_bottom_right(int window_width, int window_height);
 };
