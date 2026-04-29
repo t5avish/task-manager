@@ -14,12 +14,15 @@
 #define ID_MENU_REFRESH_AUTO_5   3002
 #define ID_MENU_REFRESH_AUTO_10  3003
 #define ID_MENU_REFRESH_MANUAL   3004
+#define ID_REFRESH_NOW 3005
 
 using namespace common;
 static ListView process_list;
 static Button end_task_button;
 static DWORD selected_pid = 0;
 static UINT refresh_rate = 2000;
+static bool is_refreshing = false;
+static HACCEL haccel = nullptr;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -32,6 +35,23 @@ static RECT calculate_listview_rect(int width, int height)
         width - MARGIN,
         height - end_task_button.height - end_task_button.margin_from_corner * 2 - MARGIN
     };
+}
+
+static void update_refresh_checkmarks(HWND hwnd, UINT active_id)
+{
+    HMENU menu_bar = GetMenu(hwnd);
+    HMENU options = GetSubMenu(menu_bar, 0);
+    HMENU refresh = GetSubMenu(options, 0);
+    HMENU auto_menu = GetSubMenu(refresh, 0);
+
+    if (active_id == 0) {
+        CheckMenuItem(auto_menu, ID_MENU_REFRESH_AUTO_2, MF_BYCOMMAND | MF_UNCHECKED);
+        CheckMenuItem(auto_menu, ID_MENU_REFRESH_AUTO_5, MF_BYCOMMAND | MF_UNCHECKED);
+        CheckMenuItem(auto_menu, ID_MENU_REFRESH_AUTO_10, MF_BYCOMMAND | MF_UNCHECKED);
+        return;
+    }
+
+    CheckMenuRadioItem(auto_menu, ID_MENU_REFRESH_AUTO_2, ID_MENU_REFRESH_AUTO_10, active_id, MF_BYCOMMAND);
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
@@ -73,11 +93,20 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     ShowWindow(hwnd, nCmdShow);
 
+    ACCEL accels[] = {
+    { FVIRTKEY, VK_F5, ID_REFRESH_NOW }
+    };
+    haccel = CreateAcceleratorTable(accels, 1);
+
     MSG msg = { };
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        if (!TranslateAccelerator(hwnd, haccel, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
     }
+    DestroyAcceleratorTable(haccel);
+
     return 0;
 }
 
@@ -109,7 +138,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         AppendMenu(auto_menu, MF_STRING, ID_MENU_REFRESH_AUTO_10, L"10 seconds");
 
         AppendMenu(refresh_menu, MF_POPUP, (UINT_PTR)auto_menu, L"Auto");
-        AppendMenu(refresh_menu, MF_STRING, ID_MENU_REFRESH_MANUAL, L"Manual");
+        AppendMenu(refresh_menu, MF_STRING, ID_MENU_REFRESH_MANUAL, L"Manual (F5)");
         AppendMenu(options_menu, MF_POPUP, (UINT_PTR)refresh_menu, L"Refresh");
 
         AppendMenu(menu_bar, MF_POPUP, (UINT_PTR)options_menu, L"Options");
@@ -130,7 +159,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             ListView_InsertColumn(process_list.hwnd, i, &col);
         }
 
+        is_refreshing = true;
         insert_processes_into_grid(process_list.hwnd);
+        is_refreshing = false;
 
         end_task_button.create(hwnd, instance, L"End task", 0, 0, ID_END_TASK);
         end_task_button.position_bottom_right(rc.right, rc.bottom);
@@ -138,6 +169,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         EnableWindow(end_task_button.hwnd, FALSE);
 
         SetTimer(hwnd, ID_REFRESH_TIMER, 2000, NULL);
+        update_refresh_checkmarks(hwnd, ID_MENU_REFRESH_AUTO_2);
         return 0;
     }
 
@@ -153,6 +185,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_NOTIFY:
     {
+        if (is_refreshing) break;
+
         auto* hdr = reinterpret_cast<LPNMHDR>(lParam);
 
         if (hdr->hwndFrom != process_list.hwnd || hdr->code != LVN_ITEMCHANGED) {
@@ -191,18 +225,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         switch (LOWORD(wParam))
         {
+
         // END TASK BUTTON
         case ID_END_TASK:
         {
             if (HIWORD(wParam) == BN_CLICKED && selected_pid)
             {
-                if (!common::soft_kill_process_by_pid(selected_pid))
+                if (!soft_kill_process_by_pid(selected_pid))
                 {
-                    common::hard_kill_process_by_pid(selected_pid);
+                    hard_kill_process_by_pid(selected_pid);
                 }
 
-                ListView_DeleteAllItems(process_list.hwnd);
-                common::insert_processes_into_grid(process_list.hwnd);
+                WaitForSingleObject(OpenProcess(SYNCHRONIZE, FALSE, selected_pid), 2000);
+
+                is_refreshing = true;
+                refresh_processes_in_grid(process_list.hwnd);
+                is_refreshing = false;
 
                 EnableWindow(end_task_button.hwnd, FALSE);
                 selected_pid = 0;
@@ -215,6 +253,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             refresh_rate = 2000;
             SetTimer(hwnd, ID_REFRESH_TIMER, refresh_rate, NULL);
+            update_refresh_checkmarks(hwnd, ID_MENU_REFRESH_AUTO_2);
             return 0;
         }
 
@@ -222,6 +261,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             refresh_rate = 5000;
             SetTimer(hwnd, ID_REFRESH_TIMER, refresh_rate, NULL);
+            update_refresh_checkmarks(hwnd, ID_MENU_REFRESH_AUTO_5);
             return 0;
         }
 
@@ -229,6 +269,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             refresh_rate = 10000;
             SetTimer(hwnd, ID_REFRESH_TIMER, refresh_rate, NULL);
+            update_refresh_checkmarks(hwnd, ID_MENU_REFRESH_AUTO_10);
             return 0;
         }
 
@@ -236,6 +277,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case ID_MENU_REFRESH_MANUAL:
         {
             KillTimer(hwnd, ID_REFRESH_TIMER);
+            update_refresh_checkmarks(hwnd, 0);
+            return 0;
+        }
+
+        case ID_REFRESH_NOW:
+        {
+            is_refreshing = true;
+            refresh_processes_in_grid(process_list.hwnd);
+            is_refreshing = false;
             return 0;
         }
         }
@@ -247,32 +297,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         if (wParam == ID_REFRESH_TIMER)
         {
-            DWORD previous_pid = selected_pid;
-
-            ListView_DeleteAllItems(process_list.hwnd);
-            common::insert_processes_into_grid(process_list.hwnd);
-
-            if (previous_pid != 0)
-            {
-                int count = ListView_GetItemCount(process_list.hwnd);
-
-                for (int i = 0; i < count; i++)
-                {
-                    LVITEM item{};
-                    item.mask = LVIF_PARAM;
-                    item.iItem = i;
-
-                    if (ListView_GetItem(process_list.hwnd, &item))
-                    {
-                        if ((DWORD)item.lParam == previous_pid)
-                        {
-                            ListView_SetItemState(process_list.hwnd, i,
-                                LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-                            break;
-                        }
-                    }
-                }
-            }
+            is_refreshing = true;
+            refresh_processes_in_grid(process_list.hwnd);
+            is_refreshing = false;
         }
         return 0;
     }
