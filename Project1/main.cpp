@@ -3,26 +3,38 @@
 #include <commctrl.h>
 #include <algorithm>
 #include <string>
+#include <thread>
+#include <mutex>
+#include <atomic>
 #include "common.hpp"
 #include "button.hpp"
 #include "listview.hpp"
 #pragma comment(lib, "Comctl32.lib")
 
 #define ID_END_TASK 1001
-#define ID_REFRESH_TIMER 2001
 #define ID_MENU_REFRESH_AUTO_2   3001
 #define ID_MENU_REFRESH_AUTO_5   3002
 #define ID_MENU_REFRESH_AUTO_10  3003
 #define ID_MENU_REFRESH_MANUAL   3004
 #define ID_REFRESH_NOW 3005
 
+#define WM_PROCESS_DATA_READY (WM_APP + 1)
+
 using namespace common;
 static ListView process_list;
 static Button end_task_button;
 static DWORD selected_pid = 0;
-static UINT refresh_rate = 2000;
-static bool is_refreshing = false;
 static HACCEL haccel = nullptr;
+static std::atomic<UINT> refresh_rate = 2000;
+static bool is_refreshing = false;
+static std::atomic<bool> running = true;
+static std::atomic<bool> auto_refresh = true;
+
+static std::vector<PROCESSENTRY32> shared_processes;
+static std::mutex processes_mutex;
+static std::thread worker_thread;
+
+static HANDLE refresh_event = nullptr;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -54,6 +66,66 @@ static void update_refresh_checkmarks(HWND hwnd, UINT active_id)
     CheckMenuRadioItem(auto_menu, ID_MENU_REFRESH_AUTO_2, ID_MENU_REFRESH_AUTO_10, active_id, MF_BYCOMMAND);
 }
 
+static void refresh_ui()
+{
+    is_refreshing = true;
+
+    DWORD prev_pid = selected_pid;
+    int top_index = ListView_GetTopIndex(process_list.hwnd);
+    RECT item_rect;
+    ListView_GetItemRect(process_list.hwnd, 0, &item_rect, LVIR_BOUNDS);
+    int row_height = item_rect.bottom - item_rect.top;
+
+    SendMessage(process_list.hwnd, WM_SETREDRAW, FALSE, 0);
+    ListView_DeleteAllItems(process_list.hwnd);
+
+    {
+        std::lock_guard<std::mutex> lock(processes_mutex);
+        insert_processes_into_grid(process_list.hwnd, shared_processes);
+    }
+
+    SendMessage(process_list.hwnd, LVM_SCROLL, 0, top_index * row_height);
+
+    selected_pid = 0;
+    EnableWindow(end_task_button.hwnd, FALSE);
+
+    int count = ListView_GetItemCount(process_list.hwnd);
+    for (int i = 0; i < count; i++) {
+        LVITEM item{};
+        item.mask = LVIF_PARAM;
+        item.iItem = i;
+        ListView_GetItem(process_list.hwnd, &item);
+
+        if (static_cast<DWORD>(item.lParam) == prev_pid) {
+            ListView_SetItemState(process_list.hwnd, i, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+            selected_pid = prev_pid;
+            EnableWindow(end_task_button.hwnd, TRUE);
+            break;
+        }
+    }
+
+    SendMessage(process_list.hwnd, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(process_list.hwnd, NULL, TRUE);
+
+    is_refreshing = false;
+}
+
+static void process_worker(HWND hwnd)
+{
+    while (running) {
+        WaitForSingleObject(refresh_event, auto_refresh ? refresh_rate.load() : INFINITE);
+
+        if (!running) break;
+
+        auto processes = get_all_processes();
+        {
+            std::lock_guard<std::mutex> lock(processes_mutex);
+            shared_processes = std::move(processes);
+        }
+        PostMessage(hwnd, WM_PROCESS_DATA_READY, 0, 0);
+    }
+}
+
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
 {
     const wchar_t CLASS_NAME[] = L"Task Manager";
@@ -62,7 +134,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
-    wc.hbrBackground = CreateSolidBrush(RGB(240, 240, 240));
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
 
     RegisterClass(&wc);
 
@@ -116,7 +188,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
     case WM_DESTROY:
     {
-        KillTimer(hwnd, ID_REFRESH_TIMER);
+        running = false;
+        SetEvent(refresh_event);
+
+        if (worker_thread.joinable()) {
+            worker_thread.join();
+        }
+
+        CloseHandle(refresh_event);
         PostQuitMessage(0);
         return 0;
     }
@@ -159,16 +238,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             ListView_InsertColumn(process_list.hwnd, i, &col);
         }
 
-        is_refreshing = true;
-        insert_processes_into_grid(process_list.hwnd);
-        is_refreshing = false;
-
         end_task_button.create(hwnd, instance, L"End task", 0, 0, ID_END_TASK);
         end_task_button.position_bottom_right(rc.right, rc.bottom);
+        
+        refresh_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
+        worker_thread = std::thread(process_worker, hwnd);
+
+        SetEvent(refresh_event);
 
         EnableWindow(end_task_button.hwnd, FALSE);
 
-        SetTimer(hwnd, ID_REFRESH_TIMER, 2000, NULL);
         update_refresh_checkmarks(hwnd, ID_MENU_REFRESH_AUTO_2);
         return 0;
     }
@@ -185,7 +265,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_NOTIFY:
     {
-        if (is_refreshing) break;
+        if (is_refreshing) return 0;
 
         auto* hdr = reinterpret_cast<LPNMHDR>(lParam);
 
@@ -231,19 +311,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             if (HIWORD(wParam) == BN_CLICKED && selected_pid)
             {
-                if (!soft_kill_process_by_pid(selected_pid))
-                {
+                if (!soft_kill_process_by_pid(selected_pid)) {
                     hard_kill_process_by_pid(selected_pid);
                 }
 
-                WaitForSingleObject(OpenProcess(SYNCHRONIZE, FALSE, selected_pid), 2000);
 
-                is_refreshing = true;
-                refresh_processes_in_grid(process_list.hwnd);
-                is_refreshing = false;
+                /// Should i keep this part ? waiting 2 secs after killing to fully kill ?
+                HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, selected_pid);
+                if (h) {
+                    WaitForSingleObject(h, 2000);
+                    CloseHandle(h);
+                }
 
-                EnableWindow(end_task_button.hwnd, FALSE);
-                selected_pid = 0;
+                refresh_ui();
             }
             return 0;
         }
@@ -251,41 +331,42 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // MENU
         case ID_MENU_REFRESH_AUTO_2:
         {
+            auto_refresh = true;
             refresh_rate = 2000;
-            SetTimer(hwnd, ID_REFRESH_TIMER, refresh_rate, NULL);
             update_refresh_checkmarks(hwnd, ID_MENU_REFRESH_AUTO_2);
+            SetEvent(refresh_event);
             return 0;
         }
 
         case ID_MENU_REFRESH_AUTO_5:
         {
+            auto_refresh = true;
             refresh_rate = 5000;
-            SetTimer(hwnd, ID_REFRESH_TIMER, refresh_rate, NULL);
             update_refresh_checkmarks(hwnd, ID_MENU_REFRESH_AUTO_5);
+            SetEvent(refresh_event);
             return 0;
         }
 
         case ID_MENU_REFRESH_AUTO_10:
         {
+            auto_refresh = true;
             refresh_rate = 10000;
-            SetTimer(hwnd, ID_REFRESH_TIMER, refresh_rate, NULL);
             update_refresh_checkmarks(hwnd, ID_MENU_REFRESH_AUTO_10);
+            SetEvent(refresh_event);
             return 0;
         }
 
         // MANUAL REFRESH
         case ID_MENU_REFRESH_MANUAL:
         {
-            KillTimer(hwnd, ID_REFRESH_TIMER);
+            auto_refresh = false;
             update_refresh_checkmarks(hwnd, 0);
             return 0;
         }
 
         case ID_REFRESH_NOW:
         {
-            is_refreshing = true;
-            refresh_processes_in_grid(process_list.hwnd);
-            is_refreshing = false;
+            SetEvent(refresh_event);
             return 0;
         }
         }
@@ -293,14 +374,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
     }
 
-    case WM_TIMER:
+    case WM_PROCESS_DATA_READY:
     {
-        if (wParam == ID_REFRESH_TIMER)
-        {
-            is_refreshing = true;
-            refresh_processes_in_grid(process_list.hwnd);
-            is_refreshing = false;
-        }
+        refresh_ui();
         return 0;
     }
     }

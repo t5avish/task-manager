@@ -60,21 +60,20 @@ namespace common {
         return processes;
     }
 
-    inline void insert_processes_into_grid(HWND& listView_hwnd)
+    inline void insert_processes_into_grid(
+        HWND listView_hwnd, const std::vector<PROCESSENTRY32>& processes)
     {
-        auto processes = get_all_processes();
-
         for (const auto& p : processes)
         {
-            std::wstring name = p.szExeFile;
             std::wstring pid = std::to_wstring(p.th32ProcessID);
-            std::wstring status = L""; // *********** TO BE MADE
+            std::wstring status = L""; // TODO later
 
             LVITEM item{};
             item.mask = LVIF_TEXT | LVIF_PARAM;
             item.iItem = ListView_GetItemCount(listView_hwnd);
             item.iSubItem = 0;
-            item.pszText = (LPWSTR)name.c_str();
+
+            item.pszText = const_cast<LPWSTR>(p.szExeFile);
             item.lParam = p.th32ProcessID;
 
             int index = ListView_InsertItem(listView_hwnd, &item);
@@ -82,68 +81,6 @@ namespace common {
             ListView_SetItemText(listView_hwnd, index, 1, (LPWSTR)pid.c_str());
             ListView_SetItemText(listView_hwnd, index, 2, (LPWSTR)status.c_str());
         }
-    }
-
-    inline void refresh_processes_in_grid(HWND listView_hwnd)
-    {
-        std::unordered_map<DWORD, std::wstring> live;
-        exception_guard([&]() {
-            for_each_process([&](const PROCESSENTRY32& pe) {
-                live[pe.th32ProcessID] = pe.szExeFile;
-                });
-            });
-
-        int count = ListView_GetItemCount(listView_hwnd);
-        for (int i = count - 1; i >= 0; i--) {
-            LVITEM item{};
-            item.mask = LVIF_PARAM;
-            item.iItem = i;
-            ListView_GetItem(listView_hwnd, &item);
-            if (live.find((DWORD)item.lParam) == live.end())
-                ListView_DeleteItem(listView_hwnd, i);
-        }
-
-        std::unordered_set<DWORD> existing;
-        count = ListView_GetItemCount(listView_hwnd);
-        for (int i = 0; i < count; i++) {
-            LVITEM item{};
-            item.mask = LVIF_PARAM;
-            item.iItem = i;
-            ListView_GetItem(listView_hwnd, &item);
-            existing.insert((DWORD)item.lParam);
-        }
-
-        exception_guard([&]() {
-            for_each_process([&](const PROCESSENTRY32& pe) {
-                if (existing.count(pe.th32ProcessID)) return;
-
-                std::wstring name = pe.szExeFile;
-                std::wstring pid = std::to_wstring(pe.th32ProcessID);
-
-                int insert_at = 0;
-                int total = ListView_GetItemCount(listView_hwnd);
-                wchar_t existing_name[MAX_PATH]{};
-                for (int i = 0; i < total; i++) {
-                    ListView_GetItemText(listView_hwnd, i, 0, existing_name, MAX_PATH);
-                    if (_wcsicmp(name.c_str(), existing_name) <= 0) {
-                        insert_at = i;
-                        break;
-                    }
-                    insert_at = i + 1;
-                }
-
-                LVITEM item{};
-                item.mask = LVIF_TEXT | LVIF_PARAM;
-                item.iItem = insert_at;
-                item.iSubItem = 0;
-                item.pszText = (LPWSTR)name.c_str();
-                item.lParam = pe.th32ProcessID;
-
-                int index = ListView_InsertItem(listView_hwnd, &item);
-                ListView_SetItemText(listView_hwnd, index, 1, (LPWSTR)pid.c_str());
-                ListView_SetItemText(listView_hwnd, index, 2, (LPWSTR)L"");
-                });
-            });
     }
 
     inline HWND find_process_main_window(DWORD pid)
