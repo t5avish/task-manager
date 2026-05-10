@@ -6,7 +6,8 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
-#include "common.hpp"
+#include "process.hpp"
+#include "utility.hpp"
 #include "button.hpp"
 #include "listview.hpp"
 #pragma comment(lib, "Comctl32.lib")
@@ -20,7 +21,6 @@
 
 #define WM_PROCESS_DATA_READY (WM_APP + 1)
 
-using namespace common;
 static ListView process_list;
 static Button end_task_button;
 static DWORD selected_pid = 0;
@@ -81,7 +81,7 @@ static void refresh_ui()
 
     {
         std::lock_guard<std::mutex> lock(processes_mutex);
-        insert_processes_into_grid(process_list.hwnd, shared_processes);
+        process::insert_processes_into_grid(process_list.hwnd, shared_processes);
     }
 
     SendMessage(process_list.hwnd, LVM_SCROLL, 0, top_index * row_height);
@@ -117,7 +117,7 @@ static void process_worker(HWND hwnd)
 
         if (!running) break;
 
-        auto processes = get_all_processes();
+        auto processes = process::get_all_processes();
         {
             std::lock_guard<std::mutex> lock(processes_mutex);
             shared_processes = std::move(processes);
@@ -140,23 +140,19 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(icex);
-    icex.dwICC = ICC_LISTVIEW_CLASSES; // Initialize ListView control
+    icex.dwICC = ICC_LISTVIEW_CLASSES;
     InitCommonControlsEx(&icex);
 
-    // Create the window.
     HWND hwnd = CreateWindowEx(
-        0,                              // Optional window styles.
-        CLASS_NAME,                     // Window class
-        L"Task Manager",    // Window text
-        WS_OVERLAPPEDWINDOW,            // Window style
-
-        // Size and position
+        0,
+        CLASS_NAME,
+        L"Task Manager",
+        WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, 600, 400,
-
-        NULL,       // Parent window    
-        NULL,       // Menu
-        hInstance,  // Instance handle
-        NULL        // Additional application data
+        NULL,
+        NULL,
+        hInstance,
+        NULL
     );
 
     if (hwnd == NULL) {
@@ -311,12 +307,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             if (HIWORD(wParam) == BN_CLICKED && selected_pid)
             {
-                if (!soft_kill_process_by_pid(selected_pid)) {
-                    hard_kill_process_by_pid(selected_pid);
+                if (!process::soft_kill_process_by_pid(selected_pid)) {
+                    process::hard_kill_process_by_pid(selected_pid);
                 }
 
-
-                /// Should i keep this part ? waiting 2 secs after killing to fully kill ?
                 HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, selected_pid);
                 if (h) {
                     WaitForSingleObject(h, 2000);
