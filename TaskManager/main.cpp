@@ -7,7 +7,6 @@
 #include <mutex>
 #include <atomic>
 #include "process.hpp"
-#include "utility.hpp"
 #include "button.hpp"
 #include "listview.hpp"
 #pragma comment(lib, "Comctl32.lib")

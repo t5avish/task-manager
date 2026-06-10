@@ -139,10 +139,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="button.hpp" />
-    <ClInclude Include="utility.hpp" />
+    <ClInclude Include="handle.hpp" />
+    <ClInclude Include="debug.hpp" />
     <ClInclude Include="listview.hpp" />
     <ClInclude Include="process.hpp" />
-    <ClInclude Include="scope.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,5 +1,5 @@
 #include "process.hpp"
-#include "utility.hpp"
+#include "debug.hpp"
 
 #include <algorithm>
 #include <commctrl.h>
@@ -68,15 +68,14 @@ namespace process
     std::vector<PROCESSENTRY32> get_all_processes()
     {
         std::vector<PROCESSENTRY32> processes;
-        utility::exception_guard([&]() {
-            for_each_process([&](const auto &pe32) {
-                processes.push_back(pe32);
-                });
 
-            std::sort(processes.begin(), processes.end(),
-                [](const auto &a, const auto &b) {
-                    return _wcsicmp(a.szExeFile, b.szExeFile) < 0;
-                });
+        for_each_process([&](const auto& pe32) {
+            processes.push_back(pe32);
+            });
+
+        std::sort(processes.begin(), processes.end(),
+            [](const auto& a, const auto& b) {
+                return _wcsicmp(a.szExeFile, b.szExeFile) < 0;
             });
 
         return processes;
