@@ -9,6 +9,7 @@
 static void for_each_process(auto f)
 {
     handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+
     if (snapshot == INVALID_HANDLE_VALUE) {
         DWORD err = GetLastError();
         throw std::runtime_error("CreateToolhelp32Snapshot failed, error: " + std::to_string(err));
