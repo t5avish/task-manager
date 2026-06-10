@@ -10,21 +10,25 @@ static void for_each_process(auto f)
 {
     handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
     if (snapshot == INVALID_HANDLE_VALUE) {
-        throw std::exception("CreateToolhelp32Snapshot : INVALID_HANDLE_VALUE");
+        DWORD err = GetLastError();
+        throw std::runtime_error("CreateToolhelp32Snapshot failed, error: " + std::to_string(err));
     }
 
     PROCESSENTRY32 pe32{ .dwSize = sizeof(PROCESSENTRY32) };
 
     if (!Process32First(snapshot, &pe32)) {
-        throw std::exception("Process32First : failed");
+        DWORD err = GetLastError();
+        throw std::runtime_error("Process32First failed, error: " + std::to_string(err));
     }
 
     do
     {
         f(pe32);
     } while (Process32Next(snapshot, &pe32));
-    if (GetLastError() != ERROR_NO_MORE_FILES) {
-        throw std::exception("Process32Next : ERROR_NO_MORE_FILES");
+
+    DWORD err = GetLastError();
+    if (err != ERROR_NO_MORE_FILES && err != 0) {
+        throw std::runtime_error("Process32Next failed, error: " + std::to_string(err));
     }
 }
 
@@ -40,7 +44,10 @@ static HWND find_process_main_window(DWORD pid)
         auto &data = *reinterpret_cast<EnumWindowData*>(lParam);
 
         DWORD window_pid = 0;
-        GetWindowThreadProcessId(hwnd, &window_pid);
+        if (!GetWindowThreadProcessId(hwnd, &window_pid)) {
+            return TRUE;
+        }
+
         if (window_pid != data.pid) {
             return TRUE;
         }
@@ -49,17 +56,17 @@ static HWND find_process_main_window(DWORD pid)
             return TRUE;
         }
 
-        /*
-        if (!IsWindowVisible(hwnd)) {
-            return TRUE;
-        }
-        */
-
         data.main_window_hwnd = hwnd;
         return FALSE;
-        };
+    };
 
-    EnumWindows(enum_windows_proc, reinterpret_cast<LPARAM>(&data));
+    if (!EnumWindows(enum_windows_proc, reinterpret_cast<LPARAM>(&data))) {
+        DWORD err = GetLastError();
+        if (err != 0) {
+            dbg(L"EnumWindows failed : error {} for PID {}", err, pid);
+        }
+        return nullptr;
+    }
     return data.main_window_hwnd;
 }
 
