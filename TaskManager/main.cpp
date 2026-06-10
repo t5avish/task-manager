@@ -116,7 +116,7 @@ static void process_worker(HWND hwnd)
 
         if (!running) break;
 
-        auto processes = process::get_all_processes();
+        auto processes = process::get_all_processes_sorted();
         {
             std::lock_guard<std::mutex> lock(processes_mutex);
             shared_processes = std::move(processes);
@@ -307,7 +307,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (HIWORD(wParam) == BN_CLICKED && selected_pid)
             {
                 if (!process::soft_kill_process_by_pid(selected_pid)) {
-                    process::hard_kill_process_by_pid(selected_pid);
+                    process::try_hard_kill_process_by_pid(selected_pid);
                 }
 
                 HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, selected_pid);

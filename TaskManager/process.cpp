@@ -65,7 +65,7 @@ static HWND find_process_main_window(DWORD pid)
 
 namespace process
 {
-    std::vector<PROCESSENTRY32> get_all_processes()
+    std::vector<PROCESSENTRY32> get_all_processes_sorted()
     {
         std::vector<PROCESSENTRY32> processes;
 
@@ -117,7 +117,7 @@ namespace process
         return true;
     }
 
-    bool hard_kill_process_by_pid(DWORD pid)
+    bool try_hard_kill_process_by_pid(DWORD pid)
     {
         handle process(OpenProcess(PROCESS_TERMINATE, FALSE, pid));
 

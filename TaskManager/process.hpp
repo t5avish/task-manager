@@ -6,7 +6,7 @@
 
 namespace process
 {
-    std::vector<PROCESSENTRY32> get_all_processes();
+    std::vector<PROCESSENTRY32> get_all_processes_sorted();
 
     void insert_processes_into_grid(
         HWND listview,
@@ -15,5 +15,5 @@ namespace process
 
     bool soft_kill_process_by_pid(DWORD pid);
 
-    bool hard_kill_process_by_pid(DWORD pid);
+    bool try_hard_kill_process_by_pid(DWORD pid);
 }
