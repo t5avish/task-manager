@@ -80,7 +80,9 @@ static void refresh_ui()
 
     {
         std::lock_guard<std::mutex> lock(processes_mutex);
-        process::insert_processes_into_grid(process_list.hwnd, shared_processes);
+        for (const auto& p : shared_processes) {
+            process::insert_process_into_listview(process_list.hwnd, p);
+        }
     }
 
     SendMessage(process_list.hwnd, LVM_SCROLL, 0, top_index * row_height);

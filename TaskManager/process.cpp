@@ -81,27 +81,27 @@ namespace process
         return processes;
     }
 
-    void insert_processes_into_grid(
-        HWND listView_hwnd, const std::vector<PROCESSENTRY32> &processes)
+    void insert_process_into_listview(HWND listView_hwnd, const PROCESSENTRY32& p)
     {
-        for (const auto &p : processes)
-        {
-            std::wstring pid = std::to_wstring(p.th32ProcessID);
-            std::wstring status = L""; // TODO later
+        std::wstring pid = std::to_wstring(p.th32ProcessID);
 
-            LVITEM item{};
-            item.mask = LVIF_TEXT | LVIF_PARAM;
-            item.iItem = ListView_GetItemCount(listView_hwnd);
-            item.iSubItem = 0;
+        // TODO: derive process status(running / suspended / unresponsive)
+        // PROCESSENTRY32 does not provide this
+        std::wstring status = L"";
 
-            item.pszText = const_cast<LPWSTR>(p.szExeFile);
-            item.lParam = p.th32ProcessID;
+        LVITEM item{};
+        item.mask = LVIF_TEXT | LVIF_PARAM;
+        item.iItem = ListView_GetItemCount(listView_hwnd);
+        item.iSubItem = 0;
 
-            int index = ListView_InsertItem(listView_hwnd, &item);
+        item.pszText = const_cast<LPWSTR>(p.szExeFile);
+        item.lParam = p.th32ProcessID;
 
-            ListView_SetItemText(listView_hwnd, index, 1, const_cast<LPWSTR>(pid.c_str()));
-            ListView_SetItemText(listView_hwnd, index, 2, const_cast<LPWSTR>(status.c_str()));
-        }
+        int index = ListView_InsertItem(listView_hwnd, &item);
+
+        ListView_SetItemText(listView_hwnd, index, 1, const_cast<LPWSTR>(pid.c_str()));
+
+        ListView_SetItemText(listView_hwnd, index, 2, const_cast<LPWSTR>(status.c_str()));
     }
 
     bool soft_kill_process_by_pid(DWORD pid)
