@@ -1,4 +1,5 @@
 #include "process.hpp"
+#include "handle.hpp"
 #include "debug.hpp"
 
 #include <algorithm>
@@ -7,11 +8,10 @@
 
 static void for_each_process(auto f)
 {
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
     if (snapshot == INVALID_HANDLE_VALUE) {
         throw std::exception("CreateToolhelp32Snapshot : INVALID_HANDLE_VALUE");
     }
-    auto _ = utility::scope_exit([=]() { CloseHandle(snapshot); });
 
     PROCESSENTRY32 pe32{ .dwSize = sizeof(PROCESSENTRY32) };
 
@@ -119,14 +119,14 @@ namespace process
 
     bool hard_kill_process_by_pid(DWORD pid)
     {
-        HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
-        if (!hProcess) {
+        handle process(OpenProcess(PROCESS_TERMINATE, FALSE, pid));
+
+        if (!process) {
             dbg(L"OpenProcess failed for PID {}", pid);
             return false;
         }
 
-        BOOL ok = TerminateProcess(hProcess, 1);
-        CloseHandle(hProcess);
+        BOOL ok = TerminateProcess(process, 1);
 
         if (!ok) {
             dbg(L"TerminateProcess failed for PID {}", pid);
