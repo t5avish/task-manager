@@ -61,49 +61,60 @@ static HWND find_process_main_window(DWORD pid)
         return FALSE;
     };
 
-    if (!EnumWindows(enum_windows_proc, reinterpret_cast<LPARAM>(&data))) {
-        DWORD err = GetLastError();
-        if (err != 0) {
-            dbg(L"EnumWindows failed : error {} for PID {}", err, pid);
-        }
-        return nullptr;
-    }
+    EnumWindows(enum_windows_proc, reinterpret_cast<LPARAM>(&data));
     return data.main_window_hwnd;
+}
+
+static ProcessStatus get_process_status(DWORD pid)
+{
+    HWND hwnd = find_process_main_window(pid);
+    if (hwnd && IsHungAppWindow(hwnd)) {
+        return ProcessStatus::Not_responding;
+    }
+    return ProcessStatus::Running;
 }
 
 namespace process
 {
-    std::vector<PROCESSENTRY32> get_all_processes_sorted()
+    std::vector<ProcessInfo> get_all_processes_sorted()
     {
-        std::vector<PROCESSENTRY32> processes;
+        std::vector<ProcessInfo> processes;
 
         for_each_process([&](const auto& pe32) {
-            processes.push_back(pe32);
+            ProcessStatus status = get_process_status(pe32.th32ProcessID);
+            processes.push_back({ pe32, status });
             });
 
         std::sort(processes.begin(), processes.end(),
             [](const auto& a, const auto& b) {
-                return _wcsicmp(a.szExeFile, b.szExeFile) < 0;
+                return _wcsicmp(a.entry.szExeFile, b.entry.szExeFile) < 0;
             });
 
         return processes;
     }
 
-    void insert_process_into_listview(HWND listView_hwnd, const PROCESSENTRY32& p)
+    void insert_process_into_listview(HWND listView_hwnd, const ProcessInfo& p)
     {
-        std::wstring pid = std::to_wstring(p.th32ProcessID);
+        std::wstring pid = std::to_wstring(p.entry.th32ProcessID);
 
-        // TODO: derive process status(running / suspended / unresponsive)
-        // PROCESSENTRY32 does not provide this
-        std::wstring status = L"";
+        std::wstring status;
+        switch (p.status)
+        {
+        case ProcessStatus::Not_responding :
+            status = L"Not responding";
+            break;
+        default:
+            status = L"";
+            break;
+        }
 
         LVITEM item{};
         item.mask = LVIF_TEXT | LVIF_PARAM;
         item.iItem = ListView_GetItemCount(listView_hwnd);
         item.iSubItem = 0;
 
-        item.pszText = const_cast<LPWSTR>(p.szExeFile);
-        item.lParam = p.th32ProcessID;
+        item.pszText = const_cast<LPWSTR>(p.entry.szExeFile);
+        item.lParam = p.entry.th32ProcessID;
 
         int index = ListView_InsertItem(listView_hwnd, &item);
 

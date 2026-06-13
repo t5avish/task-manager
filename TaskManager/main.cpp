@@ -30,7 +30,7 @@ static bool is_refreshing = false;
 static std::atomic<bool> running = true;
 static std::atomic<bool> auto_refresh = true;
 
-static std::vector<PROCESSENTRY32> shared_processes;
+static std::vector<ProcessInfo> shared_processes;
 static std::mutex processes_mutex;
 static std::thread worker_thread;
 
