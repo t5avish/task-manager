@@ -227,36 +227,13 @@ namespace process
         ListView_SetItemText(listView_hwnd, index, 2, const_cast<LPWSTR>(status.c_str()));
     }
 
-    bool soft_kill_process_by_pid(DWORD pid)
+    void end_task(const ProcessInfo& p)
     {
-        HWND hwnd = find_process_main_window(pid);
-        if (!hwnd) {
-            dbg(L"No main window found for PID {}", pid);
-            return false;
+        if (p.status == ProcessStatus::Suspended) {
+            try_hard_kill_process_by_pid(p.entry.th32ProcessID);
         }
-
-        dbg(L"Sending WM_CLOSE to PID {}, hwnd {}", pid, (void*)hwnd);
-        PostMessage(hwnd, WM_CLOSE, 0, 0);
-        return true;
-    }
-
-    bool try_hard_kill_process_by_pid(DWORD pid)
-    {
-        handle process(OpenProcess(PROCESS_TERMINATE, FALSE, pid));
-
-        if (!process) {
-            dbg(L"OpenProcess failed for PID {}", pid);
-            return false;
+        else if (!soft_kill_process_by_pid(p.entry.th32ProcessID)) {
+            try_hard_kill_process_by_pid(p.entry.th32ProcessID);
         }
-
-        BOOL ok = TerminateProcess(process, 1);
-
-        if (!ok) {
-            dbg(L"TerminateProcess failed for PID {}", pid);
-            return false;
-        }
-
-        dbg(L"Hard-killed PID {}", pid);
-        return true;
     }
 }

@@ -309,9 +309,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             if (HIWORD(wParam) == BN_CLICKED && selected_pid)
             {
-                if (!process::soft_kill_process_by_pid(selected_pid)) {
-                    process::try_hard_kill_process_by_pid(selected_pid);
+                ProcessInfo selected{};
+                bool found = false;
+                {
+                    std::lock_guard<std::mutex> lock(processes_mutex);
+                    for (const auto& p : shared_processes) {
+                        if (p.entry.th32ProcessID == selected_pid) {
+                            selected = p;
+                            found = true;
+                            break;
+                        }
+                    }
                 }
+
+                if (!found) return 0;
+
+                process::end_task(selected);
 
                 HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, selected_pid);
                 if (h) {
