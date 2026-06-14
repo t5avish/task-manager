@@ -86,8 +86,6 @@ static void refresh_ui()
         }
     }
 
-    SendMessage(process_list.hwnd, LVM_SCROLL, 0, top_index * row_height);
-
     selected_pid = 0;
     EnableWindow(end_task_button.hwnd, FALSE);
 
@@ -107,6 +105,7 @@ static void refresh_ui()
     }
 
     SendMessage(process_list.hwnd, WM_SETREDRAW, TRUE, 0);
+    SendMessage(process_list.hwnd, LVM_SCROLL, 0, top_index * row_height);
     InvalidateRect(process_list.hwnd, NULL, TRUE);
 
     is_refreshing = false;
