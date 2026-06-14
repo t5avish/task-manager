@@ -223,13 +223,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         process_list.create(hwnd, instance, calculate_listview_rect(rc.right, rc.bottom));
 
-        const std::wstring columns[] = { L"Name", L"PID", L"Status" };
-        const int widths[] = { 200, 100, 100 };
+        const std::wstring columns[] = { L"Name", L"PID", L"Status", L"Memory (KB)" };
+        const int widths[] = { 200, 100, 100, 100 };
 
         LVCOLUMN col = {};
         col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             col.pszText = const_cast<LPWSTR>(columns[i].c_str());
             col.cx = widths[i];
             ListView_InsertColumn(process_list.hwnd, i, &col);

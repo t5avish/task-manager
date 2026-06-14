@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <commctrl.h>
 #include <string>
+#include <psapi.h>
+
+#pragma comment(lib, "psapi.lib")
 
 typedef LONG(NTAPI* NtQueryInformationThread_t)(
     HANDLE ThreadHandle,
@@ -172,6 +175,17 @@ static bool try_hard_kill_process_by_pid(DWORD pid)
     return true;
 }
 
+static SIZE_T get_process_memory(DWORD pid)
+{
+    handle process(OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid));
+    if (!process) return 0;
+
+    PROCESS_MEMORY_COUNTERS_EX pmc{};
+    if (!GetProcessMemoryInfo(process, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) return 0;
+
+    return pmc.PrivateUsage;
+}
+
 namespace process
 {
     std::vector<ProcessInfo> get_all_processes_sorted()
@@ -180,7 +194,8 @@ namespace process
 
         for_each_process([&](const auto& pe32) {
             ProcessStatus status = get_process_status(pe32.th32ProcessID);
-            processes.push_back({ pe32, status });
+            SIZE_T memory = get_process_memory(pe32.th32ProcessID);
+            processes.push_back({ pe32, status, memory });
             });
 
         std::sort(processes.begin(), processes.end(),
@@ -212,19 +227,20 @@ namespace process
             break;
         }
 
+        std::wstring memory = std::to_wstring(p.memory_bytes / 1024) + L" KB";
+
         LVITEM item{};
         item.mask = LVIF_TEXT | LVIF_PARAM;
         item.iItem = ListView_GetItemCount(listView_hwnd);
         item.iSubItem = 0;
-
         item.pszText = const_cast<LPWSTR>(p.entry.szExeFile);
         item.lParam = p.entry.th32ProcessID;
 
         int index = ListView_InsertItem(listView_hwnd, &item);
 
         ListView_SetItemText(listView_hwnd, index, 1, const_cast<LPWSTR>(pid.c_str()));
-
         ListView_SetItemText(listView_hwnd, index, 2, const_cast<LPWSTR>(status.c_str()));
+        ListView_SetItemText(listView_hwnd, index, 3, const_cast<LPWSTR>(memory.c_str()));
     }
 
     void end_task(const ProcessInfo& p)

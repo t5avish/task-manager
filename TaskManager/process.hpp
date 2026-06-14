@@ -15,6 +15,7 @@ struct ProcessInfo
 {
     PROCESSENTRY32 entry;
     ProcessStatus status;
+    SIZE_T memory_bytes;
 };
 
 namespace process
